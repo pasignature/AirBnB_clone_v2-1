@@ -1,80 +1,115 @@
 #!/usr/bin/python3
-""" This file sets the States view"""
-from api.v1.views import app_views
-from flask import jsonify, abort, request
-from models import storage
+""" objects that handle all default RestFul API actions for Reviews """
 from models.review import Review
+from models.place import Place
+from models.user import User
+from models import storage
+from api.v1.views import app_views
+from flask import abort, jsonify, make_response, request
+from flasgger.utils import swag_from
 
 
-@app_views.route('/places/<place_id>/reviews', methods=['GET'])
-def list_reviews(place_id):
-    """ This view is for listing all the reviews"""
-    items = storage.all("Place", place_id).items()
-    if (items is None):
-        return abort(404)
-    ouch = []
-    for item in items:
-        if place_id == item['place_id']:
-            ouch.append(item.to_dict())
-    return jsonify(ouch)
+@app_views.route('/places/<place_id>/reviews', methods=['GET'],
+                 strict_slashes=False)
+@swag_from('documentation/reviews/get_reviews.yml', methods=['GET'])
+def get_reviews(place_id):
+    """
+    Retrieves the list of all Review objects of a Place
+    """
+    place = storage.get(Place, place_id)
+
+    if not place:
+        abort(404)
+
+    reviews = [review.to_dict() for review in place.reviews]
+
+    return jsonify(reviews)
 
 
-@app_views.route('/reviews/<review_id>', methods=['GET'])
+@app_views.route('/reviews/<review_id>', methods=['GET'], strict_slashes=False)
+@swag_from('documentation/reviews/get_review.yml', methods=['GET'])
 def get_review(review_id):
-    """ This view is for getting a specific Review """
-    estadito = storage.get("Review", review_id)
-    if estadito is None:
-        return abort(404)
-    estadito = estadito.to_dict()
-    return jsonify(estadito)
+    """
+    Retrieves a Review object
+    """
+    review = storage.get(Review, review_id)
+    if not review:
+        abort(404)
+
+    return jsonify(review.to_dict())
 
 
-@app_views.route('/reviews/<review_id>', methods=['DELETE'])
+@app_views.route('/reviews/<review_id>', methods=['DELETE'],
+                 strict_slashes=False)
+@swag_from('documentation/reviews/delete_reviews.yml', methods=['DELETE'])
 def delete_review(review_id):
-    """ This view allows to erase an state"""
-    estadito = storage.get("Review", review_id)
-    if estadito is None:
-        return jsonify(abort(404))
-    estadito.delete()
+    """
+    Deletes a Review Object
+    """
+
+    review = storage.get(Review, review_id)
+
+    if not review:
+        abort(404)
+
+    storage.delete(review)
     storage.save()
-    dictio = {}
-    return jsonify(dictio), 200
+
+    return make_response(jsonify({}), 200)
 
 
-@app_views.route('/places/<place_id>/reviews', methods=['POST'])
+@app_views.route('/places/<place_id>/reviews', methods=['POST'],
+                 strict_slashes=False)
+@swag_from('documentation/reviews/post_reviews.yml', methods=['POST'])
 def post_review(place_id):
-    """ This view allows to post info in the server"""
-    place = storage.get("Place", place_id)
-    if (place is None):
-        return abort(404)
-    if request.is_json:
-        dicto = request.get_json()
-    else:
-        return jsonify(abort(400, 'Not a JSON'))
-    if 'user_id' not in dicto:
-        return jsonify(abort(400, 'Missing user_id'))
-    if 'text' not in dicto:
-        return jsonify(abort(400, 'Missing text'))
-    enviando = Review()
-    for key, value in dicto.items():
-        setattr(enviando, key, value)
-    storage.new(enviando)
-    storage.save()
-    return jsonify(enviando.to_dict()), 201
+    """
+    Creates a Review
+    """
+    place = storage.get(Place, place_id)
+
+    if not place:
+        abort(404)
+
+    if not request.get_json():
+        abort(400, description="Not a JSON")
+
+    if 'user_id' not in request.get_json():
+        abort(400, description="Missing user_id")
+
+    data = request.get_json()
+    user = storage.get(User, data['user_id'])
+
+    if not user:
+        abort(404)
+
+    if 'text' not in request.get_json():
+        abort(400, description="Missing text")
+
+    data['place_id'] = place_id
+    instance = Review(**data)
+    instance.save()
+    return make_response(jsonify(instance.to_dict()), 201)
 
 
-@app_views.route('/reviews/<review_id>', methods=['PUT'])
+@app_views.route('/reviews/<review_id>', methods=['PUT'], strict_slashes=False)
+@swag_from('documentation/reviews/put_reviews.yml', methods=['PUT'])
 def put_review(review_id):
-    """This view sends PUT request to update info on this case"""
-    enviando = storage.get("Review", review_id)
-    if enviando is None:
-        return abort(404)
-    if request.is_json:
-        dicto = request.get_json()
-    else:
-        return jsonify(abort(400, 'Not a JSON'))
-    for key, value in dicto.items():
-        if key != 'id' and key != 'created_at' and key != 'updated_at':
-            setattr(enviando, key, value)
+    """
+    Updates a Review
+    """
+    review = storage.get(Review, review_id)
+
+    if not review:
+        abort(404)
+
+    if not request.get_json():
+        abort(400, description="Not a JSON")
+
+    ignore = ['id', 'user_id', 'place_id', 'created_at', 'updated_at']
+
+    data = request.get_json()
+    for key, value in data.items():
+        if key not in ignore:
+            setattr(review, key, value)
     storage.save()
-    return jsonify(enviando.to_dict()), 200
+    return make_response(jsonify(review.to_dict()), 200)
